@@ -71,49 +71,6 @@ header     { visibility: hidden; }
     background: #f8fafc; border: 1px solid #e2e8f0;
     border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 1.2rem;
 }
-.res-strip-safe {
-    background: #ecfdf5; border: 1.5px solid #86efac;
-    border-radius: 14px; padding: 1.3rem 1.6rem;
-    display: flex; align-items: center; gap: 14px; margin-bottom: 1.2rem;
-}
-.res-strip-warn {
-    background: #fffbeb; border: 1.5px solid #fde68a;
-    border-radius: 14px; padding: 1.3rem 1.6rem;
-    display: flex; align-items: center; gap: 14px; margin-bottom: 1.2rem;
-}
-.res-strip-danger {
-    background: #fef2f2; border: 1.5px solid #fca5a5;
-    border-radius: 14px; padding: 1.3rem 1.6rem;
-    display: flex; align-items: center; gap: 14px; margin-bottom: 1.2rem;
-}
-.res-icon   { width:52px; height:52px; border-radius:14px; display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0; }
-.res-title  { font-size: 18px; font-weight: 700; margin-bottom: 3px; }
-.res-advice { font-size: 13px; line-height: 1.6; }
-.safe-icon   { background: #d1fae5; }
-.warn-icon   { background: #fef3c7; }
-.danger-icon { background: #fee2e2; }
-.safe-text   { color: #065f46; }
-.warn-text   { color: #92400e; }
-.danger-text { color: #991b1b; }
-.gauge-box {
-    background: white; border: 1px solid #e2e8f0;
-    border-radius: 14px; padding: 1.5rem; text-align: center;
-}
-.gauge-label {
-    font-size: 10px; font-weight: 600; text-transform: uppercase;
-    letter-spacing: .07em; color: #94a3b8; margin-bottom: 8px;
-}
-.gauge-num  { font-size: 54px; font-weight: 700; line-height: 1; }
-.gauge-risk { font-size: 13px; font-weight: 600; margin-top: 6px; }
-.prob-card  {
-    background: white; border: 1px solid #e2e8f0;
-    border-radius: 12px; padding: 1rem; text-align: center;
-}
-.prob-num { font-size: 28px; font-weight: 700; margin-bottom: 3px; }
-.prob-lbl {
-    font-size: 10px; font-weight: 600; text-transform: uppercase;
-    letter-spacing: .05em; color: #94a3b8;
-}
 .sum-item {
     background: #f8fafc; border: 1px solid #e2e8f0;
     border-radius: 10px; padding: 10px 14px; margin-bottom: 8px;
@@ -303,7 +260,7 @@ with cl3:
     insulin          = st.selectbox("Insulin",
                                      ["No", "Steady", "Up", "Down"])
 
-# These are not shown in UI but filled from presets
+# Hidden defaults filled from presets
 number_outpatient = pv["outpatient"]
 num_procedures    = pv["procedures"]
 number_diagnoses  = pv["diagnoses"]
@@ -311,7 +268,7 @@ number_diagnoses  = pv["diagnoses"]
 st.markdown("<br>", unsafe_allow_html=True)
 
 
-# ── Encode Inputs — FIXED WITH MEDIANS ────────────────────────────────────
+# ── Encode Inputs ──────────────────────────────────────────────────────────
 def encode_inputs():
     med_map  = {"No": 0, "Steady": 1, "Up": 2, "Down": 3}
     a1c_map  = {"Not measured": 0, "Normal": 1, ">7": 2, ">8": 3}
@@ -321,17 +278,14 @@ def encode_inputs():
         "Genitourinary": 6, "Neoplasms": 7, "Other": 8
     }
 
-    # ── KEY FIX ────────────────────────────────────────────────────────────
-    # Use real median values from training data as defaults
-    # This means any feature not filled by the receptionist
-    # defaults to a realistic average patient value
-    # instead of 0 which was causing always-high-risk predictions
+    # Start with real medians so unfilled features
+    # default to average patient values not zero
     input_data = {
         feat: float(feature_medians.get(str(feat), 0))
         for feat in feature_names
     }
 
-    # ── Override with receptionist inputs ──────────────────────────────────
+    # Override with what receptionist entered
     input_data["age"]                = age
     input_data["time_in_hospital"]   = time_in_hospital
     input_data["number_diagnoses"]   = number_diagnoses
@@ -345,7 +299,7 @@ def encode_inputs():
     input_data["number_inpatient"]   = number_inpatient
     input_data["insulin"]            = med_map[insulin]
 
-    # ── Engineered features ────────────────────────────────────────────────
+    # Engineered features
     input_data["total_visits"]   = (number_outpatient +
                                     number_emergency +
                                     number_inpatient)
@@ -375,122 +329,108 @@ if predict_clicked:
     p1 = round(float(probabilities[1]) * 100, 1)
     p2 = round(float(probabilities[2]) * 100, 1)
 
-    risk_labels = ["Not Readmitted",
-                   "Readmitted After 30 Days",
-                   "Readmitted Within 30 Days"]
-    risk_levels = ["Low", "Medium", "High"]
+    # YES = class 1 or 2 (any readmission)
+    # NO  = class 0 (not readmitted)
+    will_readmit = prediction in [1, 2]
+    confidence   = max(p0, p1, p2)
 
     # Save to history
     st.session_state.history.append({
-        "Name"       : patient_name.strip() or "Unknown",
-        "ID"         : patient_id.strip()   or "N/A",
-        "Date"       : str(visit_date),
-        "Doctor"     : doctor_name.strip()  or "N/A",
-        "Ward"       : ward.strip()         or "N/A",
-        "Prediction" : risk_labels[prediction],
-        "Risk"       : risk_levels[prediction],
-        "Confidence" : f"{max(p0, p1, p2)}%"
+        "Name"        : patient_name.strip() or "Unknown",
+        "ID"          : patient_id.strip()   or "N/A",
+        "Date"        : str(visit_date),
+        "Doctor"      : doctor_name.strip()  or "N/A",
+        "Ward"        : ward.strip()         or "N/A",
+        "Readmitted?" : "Yes" if will_readmit else "No",
+        "Confidence"  : f"{confidence}%"
     })
 
     st.markdown("---")
 
-    # ── Risk Gauge ─────────────────────────────────────────────────────────
-    st.markdown('<div class="sec-head">Risk Score</div>',
-                unsafe_allow_html=True)
-
-    risk_score = p2
-    if risk_score >= 50:
-        g_colour = "#dc2626"; g_label = "HIGH RISK"
-    elif risk_score >= 30:
-        g_colour = "#d97706"; g_label = "MEDIUM RISK"
-    else:
-        g_colour = "#059669"; g_label = "LOW RISK"
-
-    ga, gb, gc = st.columns([1, 1.5, 1])
-    with gb:
-        st.markdown(f"""
-        <div class="gauge-box">
-            <div class="gauge-label">Readmission within 30 days</div>
-            <div class="gauge-num" style="color:{g_colour}">{risk_score}%</div>
-            <div class="gauge-risk" style="color:{g_colour}">{g_label}</div>
-        </div>
-        """, unsafe_allow_html=True)
-        st.progress(risk_score / 100)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # ── Result ─────────────────────────────────────────────────────────────
+    # ── OUTPUT — Clean Yes / No + Confidence ──────────────────────────────
     st.markdown('<div class="sec-head">Prediction Result</div>',
                 unsafe_allow_html=True)
 
-    if prediction == 0:
-        st.markdown("""
-        <div class="res-strip-safe">
-            <div class="res-icon safe-icon">✅</div>
-            <div>
-                <div class="res-title safe-text">Not Readmitted</div>
-                <div class="res-advice safe-text">
-                    Patient is unlikely to return soon.
-                    Standard follow-up recommended.
+    ra, rb, rc = st.columns([1, 2, 1])
+
+    with rb:
+        if will_readmit:
+            st.markdown(f"""
+            <div style="
+                background: #fef2f2;
+                border: 2px solid #fca5a5;
+                border-radius: 20px;
+                padding: 2.5rem 2rem;
+                text-align: center;
+            ">
+                <div style="font-size:48px; margin-bottom:10px;">⚠️</div>
+                <div style="
+                    font-size: 12px; font-weight: 700;
+                    text-transform: uppercase; letter-spacing:.1em;
+                    color: #94a3b8; margin-bottom: 8px;
+                ">Will this patient be readmitted?</div>
+                <div style="
+                    font-size: 60px; font-weight: 800;
+                    color: #dc2626; line-height: 1;
+                    margin-bottom: 20px;
+                ">YES</div>
+                <div style="
+                    background: white; border-radius: 12px;
+                    padding: 14px 24px; display: inline-block;
+                    border: 1px solid #fca5a5;
+                ">
+                    <div style="
+                        font-size: 10px; font-weight: 700;
+                        text-transform: uppercase; letter-spacing:.06em;
+                        color: #94a3b8; margin-bottom: 4px;
+                    ">Confidence Level</div>
+                    <div style="
+                        font-size: 32px; font-weight: 800;
+                        color: #dc2626;
+                    ">{confidence}%</div>
                 </div>
             </div>
-        </div>""", unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
 
-    elif prediction == 1:
-        st.markdown("""
-        <div class="res-strip-warn">
-            <div class="res-icon warn-icon">⚠️</div>
-            <div>
-                <div class="res-title warn-text">Readmitted After 30 Days</div>
-                <div class="res-advice warn-text">
-                    Patient may return after 30 days.
-                    Schedule a follow-up within 2 to 4 weeks.
+        else:
+            st.markdown(f"""
+            <div style="
+                background: #ecfdf5;
+                border: 2px solid #86efac;
+                border-radius: 20px;
+                padding: 2.5rem 2rem;
+                text-align: center;
+            ">
+                <div style="font-size:48px; margin-bottom:10px;">✅</div>
+                <div style="
+                    font-size: 12px; font-weight: 700;
+                    text-transform: uppercase; letter-spacing:.1em;
+                    color: #94a3b8; margin-bottom: 8px;
+                ">Will this patient be readmitted?</div>
+                <div style="
+                    font-size: 60px; font-weight: 800;
+                    color: #059669; line-height: 1;
+                    margin-bottom: 20px;
+                ">NO</div>
+                <div style="
+                    background: white; border-radius: 12px;
+                    padding: 14px 24px; display: inline-block;
+                    border: 1px solid #86efac;
+                ">
+                    <div style="
+                        font-size: 10px; font-weight: 700;
+                        text-transform: uppercase; letter-spacing:.06em;
+                        color: #94a3b8; margin-bottom: 4px;
+                    ">Confidence Level</div>
+                    <div style="
+                        font-size: 32px; font-weight: 800;
+                        color: #059669;
+                    ">{confidence}%</div>
                 </div>
             </div>
-        </div>""", unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
 
-    else:
-        st.markdown("""
-        <div class="res-strip-danger">
-            <div class="res-icon danger-icon">🚨</div>
-            <div>
-                <div class="res-title danger-text">Readmitted Within 30 Days</div>
-                <div class="res-advice danger-text">
-                    High risk patient. Immediate care plan advised.
-                    Coordinate with clinical team before discharge.
-                </div>
-            </div>
-        </div>""", unsafe_allow_html=True)
-
-    # ── Probability Cards ──────────────────────────────────────────────────
-    st.markdown('<div class="sec-head">Probability Breakdown</div>',
-                unsafe_allow_html=True)
-
-    pb1, pb2, pb3 = st.columns(3)
-
-    with pb1:
-        st.markdown(f"""
-        <div class="prob-card">
-            <div class="prob-num" style="color:#059669">{p0}%</div>
-            <div class="prob-lbl">Not readmitted</div>
-        </div>""", unsafe_allow_html=True)
-        st.progress(p0 / 100)
-
-    with pb2:
-        st.markdown(f"""
-        <div class="prob-card">
-            <div class="prob-num" style="color:#d97706">{p1}%</div>
-            <div class="prob-lbl">After 30 days</div>
-        </div>""", unsafe_allow_html=True)
-        st.progress(p1 / 100)
-
-    with pb3:
-        st.markdown(f"""
-        <div class="prob-card">
-            <div class="prob-num" style="color:#dc2626">{p2}%</div>
-            <div class="prob-lbl">Within 30 days</div>
-        </div>""", unsafe_allow_html=True)
-        st.progress(p2 / 100)
+    st.markdown("<br>", unsafe_allow_html=True)
 
     # ── Patient Summary ────────────────────────────────────────────────────
     st.markdown("---")
@@ -511,19 +451,19 @@ if predict_clicked:
         st.markdown(sc("Doctor",       doctor_name   or "N/A"), unsafe_allow_html=True)
 
     with sm2:
-        st.markdown(sc("Age",              f"{age} years"),          unsafe_allow_html=True)
-        st.markdown(sc("Gender",           gender),                  unsafe_allow_html=True)
-        st.markdown(sc("Days in Hospital", f"{time_in_hospital}"),   unsafe_allow_html=True)
+        st.markdown(sc("Age",              f"{age} years"),        unsafe_allow_html=True)
+        st.markdown(sc("Gender",           gender),                unsafe_allow_html=True)
+        st.markdown(sc("Days in Hospital", f"{time_in_hospital}"), unsafe_allow_html=True)
 
     with sm3:
-        st.markdown(sc("Lab Procedures",   num_lab_procedures),      unsafe_allow_html=True)
-        st.markdown(sc("Medications",      num_medications),         unsafe_allow_html=True)
-        st.markdown(sc("HbA1c",            A1Cresult),               unsafe_allow_html=True)
+        st.markdown(sc("Lab Procedures", num_lab_procedures),      unsafe_allow_html=True)
+        st.markdown(sc("Medications",    num_medications),         unsafe_allow_html=True)
+        st.markdown(sc("HbA1c",          A1Cresult),               unsafe_allow_html=True)
 
     with sm4:
-        st.markdown(sc("Emergency Visits", number_emergency),        unsafe_allow_html=True)
-        st.markdown(sc("Inpatient Visits", number_inpatient),        unsafe_allow_html=True)
-        st.markdown(sc("Insulin",          insulin),                 unsafe_allow_html=True)
+        st.markdown(sc("Emergency Visits", number_emergency),      unsafe_allow_html=True)
+        st.markdown(sc("Inpatient Visits", number_inpatient),      unsafe_allow_html=True)
+        st.markdown(sc("Insulin",          insulin),               unsafe_allow_html=True)
 
     # ── Download Report ────────────────────────────────────────────────────
     st.markdown("---")
@@ -541,14 +481,8 @@ Ward            : {ward          or "N/A"}
 
 PREDICTION RESULT
 -----------------
-Outcome         : {risk_labels[prediction]}
-Risk Level      : {risk_levels[prediction]}
-
-PROBABILITIES
--------------
-Not Readmitted           : {p0}%
-Readmitted after 30 days : {p1}%
-Readmitted within 30 days: {p2}%
+Will Be Readmitted : {"YES" if will_readmit else "NO"}
+Confidence         : {confidence}%
 
 CLINICAL INPUTS
 ---------------
@@ -570,10 +504,10 @@ Date  : {date.today()}
     """
 
     st.download_button(
-        label              = "📄 Download Patient Report",
-        data               = report,
-        file_name          = f"report_{patient_id or 'patient'}_{visit_date}.txt",
-        mime               = "text/plain",
+        label               = "📄 Download Patient Report",
+        data                = report,
+        file_name           = f"report_{patient_id or 'patient'}_{visit_date}.txt",
+        mime                = "text/plain",
         use_container_width = True
     )
 
@@ -586,15 +520,13 @@ if len(st.session_state.history) > 0:
 
     history_df = pd.DataFrame(st.session_state.history)
 
-    def colour_risk(val):
-        if val == "High":
+    def colour_readmit(val):
+        if val == "Yes":
             return "background-color:#fef2f2; color:#991b1b; font-weight:600"
-        elif val == "Medium":
-            return "background-color:#fffbeb; color:#92400e; font-weight:600"
         else:
             return "background-color:#ecfdf5; color:#065f46; font-weight:600"
 
-    styled = history_df.style.map(colour_risk, subset=["Risk"])
+    styled = history_df.style.map(colour_readmit, subset=["Readmitted?"])
     st.dataframe(styled, use_container_width=True, hide_index=True)
 
     csv = history_df.to_csv(index=False).encode("utf-8")
@@ -602,10 +534,10 @@ if len(st.session_state.history) > 0:
     h1, h2 = st.columns(2)
     with h1:
         st.download_button(
-            label              = "📥 Download History as CSV",
-            data               = csv,
-            file_name          = f"history_{date.today()}.csv",
-            mime               = "text/csv",
+            label               = "📥 Download History as CSV",
+            data                = csv,
+            file_name           = f"history_{date.today()}.csv",
+            mime                = "text/csv",
             use_container_width = True
         )
     with h2:
