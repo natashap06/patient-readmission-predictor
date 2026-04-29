@@ -135,7 +135,6 @@ st.markdown("""
 # ── EMERGENCY TOGGLE ───────────────────────────────────────────────────────
 emergency_mode = st.toggle("🚨 Emergency Mode — minimal input required",
                             value=False)
-
 if emergency_mode:
     st.markdown("""
     <div class="emg-banner">
@@ -193,29 +192,34 @@ preset = st.radio(
 
 presets = {
     "Custom": {
-        "age": 65, "time": 3, "diagnoses": 5, "lab": 40,
-        "procedures": 2, "meds": 12, "outpatient": 1,
-        "emergency": 0, "inpatient": 1
+        "age": 65, "time": 4,  "diagnoses": 7,  "lab": 44,
+        "procedures": 1, "meds": 14, "outpatient": 0,
+        "emergency": 0,  "inpatient": 0,
+        "insulin": "Steady", "A1Cresult": "Not measured"
     },
     "Elderly High Risk": {
-        "age": 82, "time": 8, "diagnoses": 9, "lab": 65,
+        "age": 82, "time": 8,  "diagnoses": 9,  "lab": 65,
         "procedures": 5, "meds": 18, "outpatient": 3,
-        "emergency": 3, "inpatient": 4
+        "emergency": 3,  "inpatient": 4,
+        "insulin": "Up", "A1Cresult": ">8"
     },
     "Young Low Risk": {
-        "age": 38, "time": 2, "diagnoses": 2, "lab": 22,
-        "procedures": 1, "meds": 5, "outpatient": 0,
-        "emergency": 0, "inpatient": 0
+        "age": 38, "time": 2,  "diagnoses": 2,  "lab": 22,
+        "procedures": 1, "meds": 5,  "outpatient": 0,
+        "emergency": 0,  "inpatient": 0,
+        "insulin": "No", "A1Cresult": "Normal"
     },
     "Chronic Diabetic": {
-        "age": 60, "time": 5, "diagnoses": 7, "lab": 55,
+        "age": 60, "time": 5,  "diagnoses": 7,  "lab": 55,
         "procedures": 3, "meds": 15, "outpatient": 2,
-        "emergency": 2, "inpatient": 2
+        "emergency": 2,  "inpatient": 2,
+        "insulin": "Steady", "A1Cresult": ">7"
     },
     "Post-Surgery": {
-        "age": 55, "time": 7, "diagnoses": 6, "lab": 70,
+        "age": 55, "time": 7,  "diagnoses": 6,  "lab": 70,
         "procedures": 6, "meds": 14, "outpatient": 1,
-        "emergency": 1, "inpatient": 3
+        "emergency": 1,  "inpatient": 3,
+        "insulin": "Steady", "A1Cresult": "Not measured"
     }
 }
 
@@ -247,7 +251,9 @@ with cl2:
                                           min_value=0, max_value=100,
                                           value=pv["meds"], step=1)
     A1Cresult          = st.selectbox("HbA1c Result",
-                                       ["Not measured", "Normal", ">7", ">8"])
+                                       ["Not measured", "Normal", ">7", ">8"],
+                                       index=["Not measured", "Normal",
+                                              ">7", ">8"].index(pv["A1Cresult"]))
 
 with cl3:
     st.markdown("**🏥 Visits and Medication**")
@@ -258,9 +264,11 @@ with cl3:
                                         min_value=0, max_value=50,
                                         value=pv["inpatient"], step=1)
     insulin          = st.selectbox("Insulin",
-                                     ["No", "Steady", "Up", "Down"])
+                                     ["No", "Steady", "Up", "Down"],
+                                     index=["No", "Steady", "Up",
+                                            "Down"].index(pv["insulin"]))
 
-# Hidden defaults filled from presets
+# Hidden values filled from presets
 number_outpatient = pv["outpatient"]
 num_procedures    = pv["procedures"]
 number_diagnoses  = pv["diagnoses"]
@@ -268,46 +276,43 @@ number_diagnoses  = pv["diagnoses"]
 st.markdown("<br>", unsafe_allow_html=True)
 
 
-# ── Encode Inputs ──────────────────────────────────────────────────────────
+# ── Encode Inputs — uses real medians as defaults ──────────────────────────
 def encode_inputs():
+    # Maps for categorical fields
     med_map  = {"No": 0, "Steady": 1, "Up": 2, "Down": 3}
     a1c_map  = {"Not measured": 0, "Normal": 1, ">7": 2, ">8": 3}
-    diag_map = {
-        "Circulatory": 0, "Respiratory": 1, "Digestive": 2,
-        "Diabetes": 3,    "Injury": 4,      "Musculoskeletal": 5,
-        "Genitourinary": 6, "Neoplasms": 7, "Other": 8
-    }
 
-    # Start with real medians so unfilled features
-    # default to average patient values not zero
+    # Start with REAL medians from training data
+    # Any feature not explicitly set below gets a realistic average value
+    # This is the key fix — prevents always-YES predictions
     input_data = {
-        feat: float(feature_medians.get(str(feat), 0))
+        feat: float(feature_medians.get(feat, 0))
         for feat in feature_names
     }
 
-    # Override with what receptionist entered
+    # Override with what the receptionist entered
     input_data["age"]                = age
-    input_data["time_in_hospital"]   = time_in_hospital
-    input_data["number_diagnoses"]   = number_diagnoses
     input_data["gender"]             = 1 if gender == "Male" else 0
+    input_data["time_in_hospital"]   = time_in_hospital
     input_data["num_lab_procedures"] = num_lab_procedures
-    input_data["num_procedures"]     = num_procedures
     input_data["num_medications"]    = num_medications
     input_data["A1Cresult"]          = a1c_map[A1Cresult]
-    input_data["number_outpatient"]  = number_outpatient
     input_data["number_emergency"]   = number_emergency
     input_data["number_inpatient"]   = number_inpatient
+    input_data["number_outpatient"]  = number_outpatient
+    input_data["num_procedures"]     = num_procedures
+    input_data["number_diagnoses"]   = number_diagnoses
     input_data["insulin"]            = med_map[insulin]
 
-    # Engineered features
+    # Engineered features — must be recalculated from inputs
     input_data["total_visits"]   = (number_outpatient +
                                     number_emergency +
                                     number_inpatient)
-    input_data["med_changed"]    = float(input_data.get("change", 0))
     input_data["polypharmacy"]   = 1 if num_medications > 10 else 0
     input_data["lab_proc_ratio"] = num_lab_procedures / (num_procedures + 1)
+    input_data["med_changed"]    = int(input_data.get("change", 0))
 
-    return pd.DataFrame([input_data])
+    return pd.DataFrame([input_data], columns=feature_names)
 
 
 # ── Predict Button ─────────────────────────────────────────────────────────
@@ -325,16 +330,16 @@ if predict_clicked:
         prediction    = rf_model.predict(input_scaled)[0]
         probabilities = rf_model.predict_proba(input_scaled)[0]
 
-    p0 = round(float(probabilities[0]) * 100, 1)
-    p1 = round(float(probabilities[1]) * 100, 1)
-    p2 = round(float(probabilities[2]) * 100, 1)
+    p0 = round(float(probabilities[0]) * 100, 1)   # NO
+    p1 = round(float(probabilities[1]) * 100, 1)   # >30 days
+    p2 = round(float(probabilities[2]) * 100, 1)   # <30 days
 
-    # YES = class 1 or 2 (any readmission)
-    # NO  = class 0 (not readmitted)
+    # YES = any readmission (class 1 or 2)
+    # NO  = not readmitted  (class 0)
     will_readmit = prediction in [1, 2]
     confidence   = max(p0, p1, p2)
 
-    # Save to history
+    # Save to session history
     st.session_state.history.append({
         "Name"        : patient_name.strip() or "Unknown",
         "ID"          : patient_id.strip()   or "N/A",
